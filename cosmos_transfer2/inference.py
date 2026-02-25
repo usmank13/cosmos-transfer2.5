@@ -23,10 +23,11 @@ from cosmos_transfer2._src.imaginaire.flags import SMOKE
 from cosmos_transfer2._src.imaginaire.lazy_config.lazy import LazyConfig
 from cosmos_transfer2._src.imaginaire.utils import distributed, log, misc
 from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
-from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment.experiment_list import EXPERIMENTS
+from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment.experiment_list import EXPERIMENTS, Experiment
 from cosmos_transfer2._src.transfer2.inference.inference_pipeline import ControlVideo2WorldInference
 from cosmos_transfer2._src.transfer2.inference.utils import compile_tokenizer_if_enabled
 from cosmos_transfer2.config import (
+    DEFAULT_BASE_EXPERIMENT,
     MODEL_CHECKPOINTS,
     InferenceArguments,
     ModelKey,
@@ -45,15 +46,39 @@ class Control2WorldInference:
         log.debug(f"{args.__class__.__name__}({args})({batch_hint_keys})")
         self.setup_args = args
         self.batch_hint_keys = batch_hint_keys
-        if len(self.batch_hint_keys) == 1:
-            # pyrefly: ignore  # bad-argument-type
-            checkpoint = MODEL_CHECKPOINTS[ModelKey(variant=self.batch_hint_keys[0])]
-            self.checkpoint_list = [checkpoint.path]
-            self.experiment = checkpoint.experiment
+
+        # Determine checkpoint path(s) and experiment
+        # Priority: user-provided args > MODEL_CHECKPOINTS defaults
+        if args.checkpoint_path is not None:
+            # User provided a custom checkpoint path
+            self.checkpoint_list = [args.checkpoint_path]
+            log.info(f"Using custom checkpoint: {args.checkpoint_path}")
+
+            if args.experiment is not None:
+                # User also provided a custom experiment
+                self.experiment = args.experiment
+                log.info(f"Using custom experiment: {args.experiment}")
+            else:
+                # Fall back to default experiment based on hint key
+                if len(self.batch_hint_keys) == 1:
+                    # pyrefly: ignore  # bad-argument-type
+                    default_checkpoint = MODEL_CHECKPOINTS[ModelKey(variant=self.batch_hint_keys[0])]
+                    self.experiment = default_checkpoint.experiment
+                else:
+                    self.experiment = "multibranch_720p_t24_spaced_layer4_cr1pt1_rectified_flow_inference"
+                log.info(f"Using default experiment for hint key: {self.experiment}")
         else:
-            # pyrefly: ignore  # bad-argument-type
-            self.checkpoint_list = [MODEL_CHECKPOINTS[ModelKey(variant=key)].path for key in self.batch_hint_keys]
-            self.experiment = "multibranch_720p_t24_spaced_layer4_cr1pt1_rectified_flow_inference"
+            # Original behavior: use MODEL_CHECKPOINTS
+            if len(self.batch_hint_keys) == 1:
+                # pyrefly: ignore  # bad-argument-type
+                checkpoint = MODEL_CHECKPOINTS[ModelKey(variant=self.batch_hint_keys[0])]
+                self.checkpoint_list = [checkpoint.path]
+                self.experiment = checkpoint.experiment
+            else:
+                # pyrefly: ignore  # bad-argument-type
+                self.checkpoint_list = [MODEL_CHECKPOINTS[ModelKey(variant=key)].path for key in self.batch_hint_keys]
+                self.experiment = "multibranch_720p_t24_spaced_layer4_cr1pt1_rectified_flow_inference"
+            log.info(f"Using default checkpoint(s): {self.checkpoint_list}")
 
         log.debug(f"Loading keys for batch hints {self.batch_hint_keys=}")
         torch.enable_grad(False)  # Disable gradient calculations for inference
@@ -85,12 +110,30 @@ class Control2WorldInference:
             self.video_guardrail_runner = None
 
         self.benchmark_timer = misc.TrainingTimer()
+
+        # Look up experiment config, with fallback for custom experiments
+        if self.experiment in EXPERIMENTS:
+            exp_config = EXPERIMENTS[self.experiment]
+            registered_exp_name = exp_config.registered_exp_name
+            exp_override_opts = exp_config.command_args
+        else:
+            # Experiment not in EXPERIMENTS dictionary - treat as a registered_exp_name directly
+            # This supports post-training experiments that use DEFAULT_BASE_EXPERIMENT
+            registered_exp_name = DEFAULT_BASE_EXPERIMENT
+            exp_override_opts = [f"model.config.hint_keys={self.batch_hint_keys[0]}"]
+            log.warning(
+                f"Experiment '{self.experiment}' not found in EXPERIMENTS dictionary. "
+                f"Using base experiment '{registered_exp_name}' with hint_keys={self.batch_hint_keys[0]}"
+            )
+
+        log.info(f"Using registered experiment: {registered_exp_name}")
+
         # Initialize the inference class
         self.inference_pipeline = ControlVideo2WorldInference(
-            registered_exp_name=EXPERIMENTS[self.experiment].registered_exp_name,
+            registered_exp_name=registered_exp_name,
             checkpoint_paths=self.checkpoint_list,
             s3_credential_path="",
-            exp_override_opts=EXPERIMENTS[self.experiment].command_args,
+            exp_override_opts=exp_override_opts,
             process_group=process_group,
             use_cp_wan=args.enable_parallel_tokenizer,
             wan_cp_grid=args.parallel_tokenizer_grid,

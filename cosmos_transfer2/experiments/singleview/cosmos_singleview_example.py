@@ -48,6 +48,62 @@ VIS_CHECKPOINT = MODEL_CHECKPOINTS[DEFAULT_VIS_MODEL_KEY]
 # Post-training with Edge Control (2B Model)
 # =============================================================================
 
+transfer2_singleview_posttrain_edge_lower_lr = dict(
+    defaults=[
+        DEFAULT_BASE_EXPERIMENT,
+        {"override /data_train": "example_singleview_train_data_edge"},
+    ],
+    job=dict(
+        project="cosmos_transfer2_posttrain",
+        group="local_single_view",
+        name="transfer2_singleview_posttrain_edge_lower_lr",
+    ),
+    checkpoint=dict(
+        save_iter=1000,
+        load_path=EDGE_CHECKPOINT.hf.path,  # pyrefly: ignore  # Use consolidated .pt file from HuggingFace
+        load_training_state=False,
+        strict_resume=False,
+        load_from_object_store=dict(enabled=False),
+        save_to_object_store=dict(enabled=False),
+    ),
+    model=dict(
+        config=dict(
+            hint_keys="edge",
+            base_load_from=None,  # Disable base model loading (already loading from checkpoint.load_path)
+        ),
+    ),
+    dataloader_train=dict(
+        dataset=dict(
+            control_input_type="edge",
+        ),
+    ),
+    trainer=dict(
+        max_iter=5000,
+        straggler_detection=dict(enabled=False),  # Disable for local training
+        callbacks=dict(
+            heart_beat=dict(save_s3=False),
+            iter_speed=dict(save_s3=False),
+            # device_monitor=dict(save_s3=False),  # Disabled: pynvml not supported on ARM64
+            every_n_sample_reg=dict(save_s3=False, every_n=200),
+            every_n_sample_ema=dict(save_s3=False, every_n=200),
+            wandb=dict(save_s3=False),
+            wandb_10x=dict(save_s3=False),
+            dataloader_speed=dict(save_s3=False),
+            frame_loss_log=dict(save_s3=False),
+        ),
+    ),
+    optimizer=dict(
+        lr=1e-5,  # Lower learning rate for fine-tuning
+    ),
+    scheduler=dict(
+        cycle_lengths=[5000],
+    ),
+    model_parallel=dict(
+        context_parallel_size=int(os.environ.get("WORLD_SIZE", "1")),
+    ),
+)
+
+
 transfer2_singleview_posttrain_edge_example = dict(
     defaults=[
         DEFAULT_BASE_EXPERIMENT,
@@ -83,7 +139,7 @@ transfer2_singleview_posttrain_edge_example = dict(
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(save_s3=False),
-            device_monitor=dict(save_s3=False),
+            # device_monitor=dict(save_s3=False),  # Disabled: pynvml not supported on ARM64
             every_n_sample_reg=dict(save_s3=False, every_n=200),
             every_n_sample_ema=dict(save_s3=False, every_n=200),
             wandb=dict(save_s3=False),
@@ -140,7 +196,7 @@ transfer2_singleview_posttrain_depth_example = dict(
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(save_s3=False),
-            device_monitor=dict(save_s3=False),
+            # device_monitor=dict(save_s3=False),  # Disabled: pynvml not supported on ARM64
             every_n_sample_reg=dict(save_s3=False, every_n=200),
             every_n_sample_ema=dict(save_s3=False, every_n=200),
             wandb=dict(save_s3=False),
@@ -197,7 +253,7 @@ transfer2_singleview_posttrain_seg_example = dict(
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(save_s3=False),
-            device_monitor=dict(save_s3=False),
+            # device_monitor=dict(save_s3=False),  # Disabled: pynvml not supported on ARM64
             every_n_sample_reg=dict(save_s3=False, every_n=200),
             every_n_sample_ema=dict(save_s3=False, every_n=200),
             wandb=dict(save_s3=False),
@@ -254,7 +310,7 @@ transfer2_singleview_posttrain_vis_example = dict(
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(save_s3=False),
-            device_monitor=dict(save_s3=False),
+            # device_monitor=dict(save_s3=False),  # Disabled: pynvml not supported on ARM64
             every_n_sample_reg=dict(save_s3=False, every_n=200),
             every_n_sample_ema=dict(save_s3=False, every_n=200),
             wandb=dict(save_s3=False),
@@ -283,6 +339,7 @@ for _item in [
     transfer2_singleview_posttrain_depth_example,
     transfer2_singleview_posttrain_seg_example,
     transfer2_singleview_posttrain_vis_example,
+    transfer2_singleview_posttrain_edge_lower_lr,
 ]:
     _name: str = _item["job"]["name"]  # pyrefly: ignore
     cs.store(

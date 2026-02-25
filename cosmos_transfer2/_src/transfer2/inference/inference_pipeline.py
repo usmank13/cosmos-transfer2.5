@@ -250,6 +250,9 @@ class ControlVideo2WorldInference:
             if num_generated_frames_vid2vid % num_frames_per_chunk != 0:
                 num_chunks += 1
 
+        # Ensure at least 1 chunk when input is shorter than chunk size (e.g. single image)
+        num_chunks = max(num_chunks, 1)
+
         return num_total_frames, num_chunks, num_frames_per_chunk
 
     def _pad_input_frames(
@@ -271,10 +274,16 @@ class ControlVideo2WorldInference:
                 padding = last_frame.repeat(1, num_video_frames_per_chunk - num_total_frames, 1, 1)
                 input_frames = torch.cat([input_frames, padding], dim=1)
             elif padding_mode == "reflect":
-                while input_frames.shape[1] < num_video_frames_per_chunk:
-                    padding = min(input_frames.shape[1] - 1, num_video_frames_per_chunk - input_frames.shape[1])
-                    padding_frames = input_frames.flip(dims=[1])[:, :padding, :, :]
-                    input_frames = torch.cat([input_frames, padding_frames], dim=1)
+                # Fall back to repeat for single frame since reflect needs at least 2 frames
+                if input_frames.shape[1] == 1:
+                    last_frame = input_frames[:, -1:, :, :]
+                    repeat_padding = last_frame.repeat(1, num_video_frames_per_chunk - 1, 1, 1)
+                    input_frames = torch.cat([input_frames, repeat_padding], dim=1)
+                else:
+                    while input_frames.shape[1] < num_video_frames_per_chunk:
+                        padding = min(input_frames.shape[1] - 1, num_video_frames_per_chunk - input_frames.shape[1])
+                        padding_frames = input_frames.flip(dims=[1])[:, :padding, :, :]
+                        input_frames = torch.cat([input_frames, padding_frames], dim=1)
             else:
                 raise ValueError(f"Invalid padding mode: {padding_mode}")
         return input_frames
