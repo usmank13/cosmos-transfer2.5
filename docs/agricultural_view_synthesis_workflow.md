@@ -6,7 +6,7 @@
 
 **Available Data:**
 - Top-down soybean field videos with Intel RealSense depth
-- Abundant angled-view video data of other crops (e.g., cotton), also with RealSense depth
+- Abundant angled-view video data of other crops (e.g., cotton)
 - Multiple synchronized cameras on the robot (laterally spaced top-down + forward-facing nav camera)
 - Trained NeRF providing 3D scene representation
 

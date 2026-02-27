@@ -15,7 +15,7 @@ This document specifies the end-to-end data pipeline for LoRA fine-tuning Cosmos
 | **Training type** | LoRA (Low-Rank Adaptation), ~2% of parameters |
 | **Target resolution** | 1280x720 (720p) |
 | **Target FPS** | 10 FPS |
-| **Clip duration** | 3-5 seconds (30-50 frames) |
+| **Clip duration** | 10 seconds (100 frames; 93 minimum required by training) |
 | **Data volume target** | 1,000-5,000 clips |
 | **Training hardware** | DGX Spark (1x GB10, 128 GB shared VRAM) |
 | **Source data** | ~30 robots, ~5,000 capture archives in S3 |
@@ -169,7 +169,7 @@ This naming encodes provenance (which robot, when, which camera) while staying f
 |----------|-------------|-------|
 | **Resolution** | 1280x720 | Crop captures are native; nav cameras need upscale+pad |
 | **Frame Rate** | 10 FPS | Downsample from 15fps streaming or interpolate from 5fps capture |
-| **Duration** | 3-5 seconds | 30-50 frames; segment longer captures into multiple clips |
+| **Duration** | 10 seconds | 100 frames (93 minimum required by Cosmos training) |
 | **Codec** | H.264 (libx264) | MP4 container |
 | **Pixel Format** | yuv420p | Standard for Cosmos |
 | **CRF** | 18 | High quality |
@@ -381,10 +381,10 @@ Append the VLM response to the template-generated caption. This adds cost ($0.01
 The crop cameras capture at exactly 1280x720 — no spatial transformation needed, just frame rate conversion and re-encoding:
 
 ```bash
-# Segment into 3-second clips at 10fps from 5fps capture source
+# Segment into 10-second clips at 10fps from 5fps capture source
 # -ss: start time, -t: duration
 ffmpeg -i capture_color_crop_center_1_*.mp4 \
-  -ss 0 -t 3 \
+  -ss 0 -t 10 \
   -r 10 \
   -c:v libx264 -preset medium -crf 18 \
   -pix_fmt yuv420p \
@@ -396,6 +396,8 @@ Note: The source capture is 5fps. Upsampling to 10fps will duplicate frames (eac
 
 **Recommendation:** Use `capture/` videos (5fps, 1280x720) for crop cameras. Frame duplication at 10fps is preferable to upscaling 640x480 video.
 
+**Minimum frame requirement:** Cosmos training requires at least 93 frames per clip. At 10fps, this means clips must be at least 9.3 seconds. We target 10-second clips (100 frames) to have margin.
+
 #### Nav Camera Captures (640x480 → 1280x720)
 
 Nav cameras require upscaling and letterboxing:
@@ -403,7 +405,7 @@ Nav cameras require upscaling and letterboxing:
 ```bash
 # Scale 640x480 (4:3) → 960x720 (maintain aspect) then pad to 1280x720
 ffmpeg -i capture_color_nav_front_0_*.mp4 \
-  -ss 0 -t 3 \
+  -ss 0 -t 10 \
   -vf "scale=960:720,pad=1280:720:160:0:black" \
   -r 10 \
   -c:v libx264 -preset medium -crf 18 \
@@ -417,7 +419,7 @@ This produces 1280x720 with 160px black bars on left and right. An alternative i
 ```bash
 # Crop 640x480 → 640x360 (16:9 center crop), then scale to 1280x720
 ffmpeg -i capture_color_nav_front_0_*.mp4 \
-  -ss 0 -t 3 \
+  -ss 0 -t 10 \
   -vf "crop=640:360:0:60,scale=1280:720" \
   -r 10 \
   -c:v libx264 -preset medium -crf 18 \
@@ -435,7 +437,7 @@ Depth captures are already 8-bit encoded H.264 at the same resolution as color. 
 ```bash
 # For crop cameras (already 1280x720):
 ffmpeg -i capture_depth_crop_center_1_*.mp4 \
-  -ss 0 -t 3 \
+  -ss 0 -t 10 \
   -vf "negate" \
   -r 10 \
   -c:v libx264 -preset medium -crf 18 \
@@ -450,24 +452,26 @@ For nav cameras, apply the same crop+scale as the color video, plus negate.
 
 ### 4.6 Clip Segmentation Strategy
 
-Each capture is ~13-15 seconds long. At 3 seconds per clip, each capture yields ~4-5 clips per camera. With 4 cameras per capture and ~5,000 captures:
+Each capture is ~13-15 seconds long. At 10 seconds per clip (required for 93+ frames at 10fps), most captures yield only 1 clip per camera. With 4 cameras per capture and ~5,000 captures:
 
 | | Per Capture | Total (5K captures) |
 |-|-------------|---------------------|
-| Clips per camera | 4-5 | 20,000-25,000 per camera |
+| Clips per camera | 1 (captures ≥10s) | 5,000-10,000 per camera |
 | Cameras per capture | 4 | — |
-| Total clips | 16-20 | 80,000-100,000 |
+| Total clips | ~4 | ~20,000-40,000 |
 
-This is well above the 5,000-clip target. We can be selective:
-- **Start with crop cameras only** (best resolution, most interesting views) → ~40,000-50,000 candidate clips
+This is still well above the 5,000-clip target. We can be selective:
+- **Start with crop cameras only** (best resolution, most interesting views) → ~10,000-20,000 candidate clips
 - Sample a diverse subset of 5,000 clips across robots, dates, and cameras
 - Later add nav camera clips to expand diversity
 
 **Segmentation rules:**
-- Fixed 3-second windows with 0-second overlap (non-overlapping)
-- Discard final segment if < 2.9 seconds (29 frames at 10fps)
+- Single 10-second clip from the start of each capture (simpler than multiple segments)
+- Skip captures shorter than 10 seconds entirely
 - Skip clips where >20% of depth frames are black/zero (sensor dropout)
 - Skip clips with significant motion blur (optional, detect via Laplacian variance)
+
+**Re-processing from cached captures:** If captures have already been downloaded to a local cache (e.g., `/tmp/captures/`), the pipeline should detect and reuse them rather than re-downloading from S3. Only the clip extraction step needs to be re-run with the updated 10-second duration.
 
 ### 4.7 Logging and Warnings
 
@@ -483,7 +487,7 @@ The pipeline should log warnings whenever important metadata cannot be resolved,
 | Transform graph fails to resolve camera pose | WARNING | Log camera name + capture; fall back to VLM |
 | Capture color video missing or corrupt | ERROR | Skip this camera for this capture |
 | Capture depth video missing or corrupt | WARNING | Produce RGB clip without paired depth |
-| Capture shorter than minimum clip duration (< 3s) | WARNING | Skip capture entirely |
+| Capture shorter than minimum clip duration (< 10s) | WARNING | Skip capture entirely |
 | Metadata CSV missing (no frame timestamps) | WARNING | Cannot verify depth-color alignment; proceed with caution |
 | S3 object in Glacier storage class | WARNING | Skip; log S3 key for later restore |
 
@@ -513,8 +517,8 @@ def validate_clip(video_path, depth_path, caption_path):
         errors.append(f"resolution {w}x{h}, expected 1280x720")
     if abs(fps - 10) > 0.5:
         errors.append(f"fps {fps}, expected 10")
-    if frames < 29:
-        errors.append(f"only {frames} frames, need >= 29")
+    if frames < 93:
+        errors.append(f"only {frames} frames, need >= 93")
 
     # Depth checks
     if not Path(depth_path).exists():
@@ -632,11 +636,11 @@ Prefer splitting by **robot** or **date** rather than random, so validation trul
 
 | Data | Per Clip (3s) | 5,000 Clips |
 |------|---------------|-------------|
-| 720p RGB video (CRF 18) | ~4 MB | ~20 GB |
-| Depth video | ~1.5 MB | ~7.5 GB |
+| 720p RGB video (CRF 18, 10s) | ~12 MB | ~60 GB |
+| Depth video (10s) | ~5 MB | ~25 GB |
 | T5 embedding | ~1 MB | ~5 GB |
 | Caption text | <1 KB | ~5 MB |
-| **Total** | ~6.5 MB | **~33 GB** |
+| **Total** | ~18 MB | **~90 GB** |
 
 ### 7.2 Processing Cost
 
@@ -738,5 +742,5 @@ The data pipeline built here (S3 extraction, metadata assembly, caption generati
 | Poor generation quality | Captions too generic | Add VLM enrichment pass |
 | Depth misaligned | Color/depth from different time windows | Ensure same `-ss`/`-t` for both |
 | Black bars in nav clips | Padding instead of cropping | Use center-crop + scale approach |
-| Source video too short | Capture < 3 seconds | Skip; use only captures > 3s |
+| Source video too short | Capture < 10 seconds | Skip; use only captures ≥ 10s |
 | Corrupt tar in S3 | Interrupted upload | Log and skip; plenty of data |

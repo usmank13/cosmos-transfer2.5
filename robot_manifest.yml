@@ -18,10 +18,29 @@
 robots:
   betsy-102:
     deployments:
+      # DREC Test Field (early testing)
+      - farm: "DREC"
+        field: "Test Field"
+        crop: "unknown"  # Test field, crop unclear
+        start: "2025-03-06"
+        end: "2025-03-06"
+      # DREC Cotton Field (Intra-Row) - brief
+      - farm: "DREC"
+        field: "Cotton Field (Intra-Row)"
+        crop: "cotton"
+        start: "2025-07-01"
+        end: "2025-07-01"
+      # DREC Cotton Field (top-down)
       - farm: "DREC"
         field: "Cotton Field"
         crop: "cotton"
         start: "2025-07-02"
+        end: "2025-08-14"
+      # DREC Cotton Intra-Row (angled)
+      - farm: "DREC"
+        field: "Cotton Intra-Row"
+        crop: "cotton"
+        start: "2025-08-20"
         end: "2025-09-18"
       # DREC Tomato Intrarow
       - farm: "DREC"
@@ -29,14 +48,45 @@ robots:
         crop: "tomato"
         start: "2025-10-11"
         end: "2025-11-24"
+      # DREC Tomato Rows
+      - farm: "DREC"
+        field: "Tomato Rows"
+        crop: "tomato"
+        start: "2025-10-11"
+        end: "2025-10-15"
+
   porkchop-103:
     deployments:
-      # Bowles Tomato
+      # DREC Test Field (early testing)
+      - farm: "DREC"
+        field: "Test Field"
+        crop: "unknown"
+        start: "2025-03-04"
+        end: "2025-03-05"
+      # Bowles Tomato Field
       - farm: "Bowles"
         field: "Tomato Field"
         crop: "tomato"
         start: "2025-04-29"
         end: "2025-06-09"
+      # Bowles Tomato Field Big
+      - farm: "Bowles"
+        field: "Tomato Field Big"
+        crop: "tomato"
+        start: "2025-05-28"
+        end: "2025-06-09"
+      # UC Merced Cotton Field
+      - farm: "UC Merced"
+        field: "Cotton Field"
+        crop: "cotton"
+        start: "2025-07-22"
+        end: "2025-08-07"
+      # UC Merced Crop Pops
+      - farm: "UC Merced"
+        field: "Crop Pops"
+        crop: "crop_pops"  # Experimental crop
+        start: "2025-07-22"
+        end: "2025-07-31"
       # UC Merced Cotton Intra-Row
       - farm: "UC Merced"
         field: "Cotton Intra-Row"
@@ -46,20 +96,30 @@ robots:
 
   kryten-108:
     deployments:
+      # DREC Test Field
+      - farm: "DREC"
+        field: "Test Field"
+        crop: "unknown"
+        start: "2025-05-22"
+        end: "2025-05-22"
       # DREC Cotton Field
       - farm: "DREC"
         field: "Cotton Field"
         crop: "cotton"
         start: "2025-06-10"
         end: "2025-07-11"
-
-  shifa-104:
-    deployments:
-      - farm: "Bowles"
-        field: "Cotton"
-        crop: "cotton"
-        start: "2025-04-20"
-        end: "2025-05-15"
+      # DREC Crop Pops
+      - farm: "DREC"
+        field: "Crop Pops"
+        crop: "crop_pops"
+        start: "2025-07-09"
+        end: "2025-07-09"
+      # DREC Tomato Intrarow
+      - farm: "DREC"
+        field: "Tomato Intrarow"
+        crop: "tomato"
+        start: "2025-12-03"
+        end: "2025-12-03"
 
   loki-116:
     deployments:
@@ -70,14 +130,14 @@ robots:
         start: "2025-05-09"
         end: "2025-06-18"
 
-  terra-115:
+  robee-118:
     deployments:
-      # Brakke Soybean Field
-      - farm: "Brakke"
-        field: "Soybean Field"
-        crop: "soybean"
-        start: "2025-05-19"
-        end: "2025-07-28"
+      # Eidem Sugarbeet Field
+      - farm: "Eidem"
+        field: "Sugarbeet Field"
+        crop: "sugarbeet"
+        start: "2025-04-24"
+        end: "2025-06-26"
 
   gadget-113:
     deployments:
@@ -88,4 +148,14 @@ robots:
         start: "2025-05-23"
         end: "2025-06-30"
 
+# Summary of crop types in this manifest:
+# - cotton: betsy-102, porkchop-103, kryten-108 (DREC, UC Merced)
+# - tomato: betsy-102, porkchop-103, kryten-108 (DREC, Bowles)
+# - sugarbeet: loki-116, robee-118, gadget-113 (Rockstad, Eidem, Zimmerman)
+# - crop_pops: porkchop-103, kryten-108 (UC Merced, DREC) - experimental
+# - unknown: early test field captures
 
+# Notes on camera angles:
+# - Fields with "Intra-Row" or "Intrarow" in name: angled/intra-row camera config
+# - All other fields: assumed top-down camera config
+# - Actual angle should be verified via telemetry extrinsics per capture

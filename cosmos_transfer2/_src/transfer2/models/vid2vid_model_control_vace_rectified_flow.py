@@ -14,7 +14,8 @@
 # limitations under the License.
 
 import os
-from typing import Callable, Dict, Tuple
+import re
+from typing import Callable, Dict, List, Tuple
 
 import attrs
 import torch
@@ -44,6 +45,15 @@ from cosmos_transfer2._src.transfer2.datasets.augmentors.control_input import CT
 
 IS_PREPROCESSED_KEY = "is_preprocessed"
 
+# Parameter name substrings that identify control-branch modules (used for selective freezing).
+CONTROL_BRANCH_PARAM_KEYS = (
+    "control_blocks",
+    "control_embedder",
+    "t_embedder_for_control_branch",
+    "t_embedding_norm_for_control_branch",
+    "x_embedder_for_control_branch",
+    "input_hint_block",
+)
 
 @attrs.define(slots=False)
 class ControlVideo2WorldRectifiedFlowConfig(Video2WorldModelRectifiedFlowConfig):
@@ -55,6 +65,8 @@ class ControlVideo2WorldRectifiedFlowConfig(Video2WorldModelRectifiedFlowConfig)
     )
     hint_keys: str = "_".join([key.replace("control_input_", "") for key in CTRL_HINT_KEYS.keys()])
     use_reference_image: bool = False  # Whether to use reference image as control input
+    lora_target: str = "dit"  # "dit", "control", or "both"
+    freeze_control_branch: bool = False  # If True, freeze all control branch params (useful with lora_target="dit")
 
 
 class ControlVideo2WorldModelRectifiedFlow(Video2WorldModelRectifiedFlow):
@@ -66,8 +78,150 @@ class ControlVideo2WorldModelRectifiedFlow(Video2WorldModelRectifiedFlow):
         self.is_new_training = True
         self.copy_weight_strategy = config.copy_weight_strategy
         self.hint_keys = ["control_input_" + key for key in config.hint_keys.split("_")]
+        self._lora_ready = False  # Guard: defer LoRA injection until after weight copying
         super().__init__(config, *args, **kwargs)
         log.info(self.net, rank0_only=True)
+
+    @staticmethod
+    def _get_lora_target_modules(lora_target: str, base_modules: str) -> List[str]:
+        """Convert user-friendly module names + target branch into regex patterns for PEFT.
+
+        Args:
+            lora_target: "dit", "control", or "both"
+            base_modules: Comma-separated module names, e.g. "q_proj,k_proj,v_proj,output_proj,mlp.layer1,mlp.layer2"
+
+        Returns:
+            List of regex pattern strings for PEFT's target_modules
+        """
+        modules = [m.strip() for m in base_modules.split(",")]
+        # Escape dots in module names for regex
+        escaped = [re.escape(m) for m in modules]
+        # Join as alternation
+        mod_alt = "|".join(escaped)
+
+        # Account for optional _checkpoint_wrapped_module in paths
+        cwm = r"(\._checkpoint_wrapped_module)?"
+
+        patterns = []
+        if lora_target in ("dit", "both"):
+            # Match blocks.N.{module} but NOT control_blocks
+            patterns.append(rf"^blocks\.\d+{cwm}\.({mod_alt})$")
+        if lora_target in ("control", "both"):
+            # Match control_blocks.N.{module} and control_blocks_N.{module} (multi-branch)
+            patterns.append(rf"^control_blocks[._]\d+{cwm}\.({mod_alt})$")
+
+        if not patterns:
+            raise ValueError(f"Invalid lora_target: {lora_target!r}. Must be 'dit', 'control', or 'both'.")
+
+        return patterns
+
+    def add_lora(
+        self,
+        network: torch.nn.Module,
+        lora_rank: int = 4,
+        lora_alpha: int = 4,
+        lora_target_modules: str = "q_proj,k_proj,v_proj,output_proj,mlp.layer1,mlp.layer2",
+        init_lora_weights: bool = True,
+        use_dora: bool = False,
+        **kwargs,
+    ) -> torch.nn.Module:
+        """Override parent's add_lora with deferred injection for control VACE models.
+
+        When called from build_net (too early, before weight copying), this is a no-op.
+        When called from _inject_lora in set_up_model (after weight copying), injection proceeds.
+        Always uses inject_adapter_in_model (not get_peft_model) to preserve module hierarchy.
+        """
+        if not self._lora_ready:
+            return network  # Called from build_net too early; will be called again from set_up_model
+
+        assert network is not None, "Network is not initialized"
+        try:
+            from peft import LoraConfig, inject_adapter_in_model
+        except ImportError as e:
+            raise ImportError(
+                "PEFT library is required for LoRA training. Please install it with: pip install peft"
+            ) from e
+
+        config = self.config
+        target_patterns = self._get_lora_target_modules(config.lora_target, lora_target_modules)
+
+        log.info(
+            f"Adding LoRA adapters: rank={lora_rank}, alpha={lora_alpha}, "
+            f"target={config.lora_target}, patterns={target_patterns}, use_dora={use_dora}"
+        )
+
+        lora_config = LoraConfig(
+            r=lora_rank,
+            lora_alpha=lora_alpha,
+            init_lora_weights=init_lora_weights,
+            target_modules=target_patterns,
+            use_dora=use_dora,
+        )
+
+        try:
+            inject_adapter_in_model(lora_config, network)
+        except Exception as e:
+            raise RuntimeError(f"Failed to inject LoRA adapters into model: {e}") from e
+
+        # Upcast LoRA params to fp32 and count
+        lora_params = 0
+        total_params = 0
+        for name, param in network.named_parameters():
+            total_params += param.numel()
+            if "lora_" in name:
+                lora_params += param.numel()
+                param.data = param.to(torch.float32)
+
+        log.info(
+            f"LoRA injection successful: {lora_params:,} trainable parameters "
+            f"out of {total_params:,} total ({100 * lora_params / total_params:.3f}%)"
+        )
+        return network
+
+    def _inject_lora(self):
+        """Inject LoRA into net (and net_ema if enabled) after weight copying is complete."""
+        config = self.config
+        self.add_lora(
+            self.net,
+            lora_rank=config.lora_rank,
+            lora_alpha=config.lora_alpha,
+            lora_target_modules=config.lora_target_modules,
+            init_lora_weights=config.init_lora_weights,
+            use_dora=config.use_dora,
+        )
+        if config.ema.enabled and hasattr(self, "net_ema") and hasattr(self, "net_ema_worker"):
+            self.add_lora(
+                self.net_ema,
+                lora_rank=config.lora_rank,
+                lora_alpha=config.lora_alpha,
+                lora_target_modules=config.lora_target_modules,
+                init_lora_weights=config.init_lora_weights,
+                use_dora=config.use_dora,
+            )
+            self.net_ema.requires_grad_(False)
+            self.net_ema_worker.copy_to(src_model=self.net, tgt_model=self.net_ema)
+
+    def _unfreeze_lora_params(self):
+        """Unfreeze LoRA parameters based on lora_target setting."""
+        lora_target = self.config.lora_target
+        for name, param in self.net.named_parameters():
+            if "lora_" not in name:
+                continue
+            if lora_target == "dit":
+                if "control_blocks" not in name:
+                    param.requires_grad = True
+            elif lora_target == "control":
+                if "control_blocks" in name:
+                    param.requires_grad = True
+            elif lora_target == "both":
+                param.requires_grad = True
+
+    def _refreeze_control_branch(self):
+        """Re-freeze all control branch params (except LoRA params which stay trainable)."""
+        for name, param in self.net.named_parameters():
+            is_control = any(key in name for key in CONTROL_BRANCH_PARAM_KEYS)
+            if is_control and "lora_" not in name:
+                param.requires_grad = False
 
     def get_data_and_condition(
         self, data_batch: dict[str, torch.Tensor]
@@ -507,6 +661,14 @@ class ControlVideo2WorldModelRectifiedFlow(Video2WorldModelRectifiedFlow):
         self.freeze_base_model()
         self.load_base_model()
         self.copy_weights_to_control_branch()
+        # Inject LoRA after weight copying to avoid state_dict key mismatch
+        if self.config.use_lora:
+            self._lora_ready = True
+            self._inject_lora()
+            # Since freeze_base_model already ran, unfreeze LoRA params now
+            self._unfreeze_lora_params()
+            if self.config.freeze_control_branch:
+                self._refreeze_control_branch()
 
     def load_multi_branch_checkpoints(self, checkpoint_paths: list[str]):
         """

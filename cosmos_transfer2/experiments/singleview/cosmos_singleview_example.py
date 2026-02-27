@@ -329,6 +329,129 @@ transfer2_singleview_posttrain_vis_example = dict(
 
 
 # =============================================================================
+# Post-training with Edge Control + LoRA on DiT (2B Model)
+# =============================================================================
+
+transfer2_singleview_posttrain_edge_lora_dit_example = dict(
+    defaults=[
+        DEFAULT_BASE_EXPERIMENT,
+        {"override /data_train": "example_singleview_train_data_edge"},
+    ],
+    job=dict(
+        project="cosmos_transfer2_posttrain",
+        group="local_single_view_lora",
+        name="transfer2_singleview_posttrain_edge_lora_dit_example",
+    ),
+    checkpoint=dict(
+        save_iter=1000,
+        load_path=EDGE_CHECKPOINT.hf.path,  # pyrefly: ignore
+        load_training_state=False,
+        strict_resume=False,
+        load_from_object_store=dict(enabled=False),
+        save_to_object_store=dict(enabled=False),
+    ),
+    model=dict(
+        config=dict(
+            hint_keys="edge",
+            base_load_from=None,
+            use_lora=True,
+            lora_rank=32,
+            lora_alpha=32,
+            lora_target="dit",
+            freeze_control_branch=False,
+        ),
+    ),
+    dataloader_train=dict(
+        dataset=dict(
+            control_input_type="edge",
+        ),
+    ),
+    trainer=dict(
+        max_iter=5000,
+        straggler_detection=dict(enabled=False),
+        callbacks=dict(
+            heart_beat=dict(save_s3=False),
+            iter_speed=dict(save_s3=False),
+            device_monitor=dict(save_s3=False),
+            every_n_sample_reg=dict(save_s3=False, every_n=200),
+            every_n_sample_ema=dict(save_s3=False, every_n=200),
+            wandb=dict(save_s3=False),
+            wandb_10x=dict(save_s3=False),
+            dataloader_speed=dict(save_s3=False),
+            frame_loss_log=dict(save_s3=False),
+        ),
+    ),
+    scheduler=dict(
+        cycle_lengths=[5000],
+    ),
+    model_parallel=dict(
+        context_parallel_size=int(os.environ.get("WORLD_SIZE", "1")),
+    ),
+)
+
+
+# =============================================================================
+# Post-training with Edge Control + LoRA on Control Branch (2B Model)
+# =============================================================================
+
+transfer2_singleview_posttrain_edge_lora_control_example = dict(
+    defaults=[
+        DEFAULT_BASE_EXPERIMENT,
+        {"override /data_train": "example_singleview_train_data_edge"},
+    ],
+    job=dict(
+        project="cosmos_transfer2_posttrain",
+        group="local_single_view_lora",
+        name="transfer2_singleview_posttrain_edge_lora_control_example",
+    ),
+    checkpoint=dict(
+        save_iter=1000,
+        load_path=EDGE_CHECKPOINT.hf.path,  # pyrefly: ignore
+        load_training_state=False,
+        strict_resume=False,
+        load_from_object_store=dict(enabled=False),
+        save_to_object_store=dict(enabled=False),
+    ),
+    model=dict(
+        config=dict(
+            hint_keys="edge",
+            base_load_from=None,
+            use_lora=True,
+            lora_rank=32,
+            lora_alpha=32,
+            lora_target="control",
+        ),
+    ),
+    dataloader_train=dict(
+        dataset=dict(
+            control_input_type="edge",
+        ),
+    ),
+    trainer=dict(
+        max_iter=5000,
+        straggler_detection=dict(enabled=False),
+        callbacks=dict(
+            heart_beat=dict(save_s3=False),
+            iter_speed=dict(save_s3=False),
+            device_monitor=dict(save_s3=False),
+            every_n_sample_reg=dict(save_s3=False, every_n=200),
+            every_n_sample_ema=dict(save_s3=False, every_n=200),
+            wandb=dict(save_s3=False),
+            wandb_10x=dict(save_s3=False),
+            dataloader_speed=dict(save_s3=False),
+            frame_loss_log=dict(save_s3=False),
+        ),
+    ),
+    scheduler=dict(
+        cycle_lengths=[5000],
+    ),
+    model_parallel=dict(
+        context_parallel_size=int(os.environ.get("WORLD_SIZE", "1")),
+    ),
+)
+
+
+# =============================================================================
 # Register all experiments
 # =============================================================================
 
@@ -340,6 +463,8 @@ for _item in [
     transfer2_singleview_posttrain_seg_example,
     transfer2_singleview_posttrain_vis_example,
     transfer2_singleview_posttrain_edge_lower_lr,
+    transfer2_singleview_posttrain_edge_lora_dit_example,
+    transfer2_singleview_posttrain_edge_lora_control_example,
 ]:
     _name: str = _item["job"]["name"]  # pyrefly: ignore
     cs.store(
