@@ -223,6 +223,8 @@ class ImaginaireTrainer:
         optimizer, scheduler = model.init_optimizer_scheduler(self.config.optimizer, self.config.scheduler)
         grad_scaler = torch.amp.GradScaler("cuda", **self.config.trainer.grad_scaler_args)
         self.callbacks.on_optimizer_init_end()
+        # Store optimizer reference so callbacks can access it (e.g., for memory offloading)
+        self.optimizer = optimizer
         # Load the model checkpoint and get the starting iteration number.
         iteration = self.checkpointer.load(model, optimizer, scheduler, grad_scaler)
         grad_accum_iter = 0

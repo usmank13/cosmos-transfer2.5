@@ -60,7 +60,7 @@ transfer2_singleview_posttrain_edge_lower_lr = dict(
     ),
     checkpoint=dict(
         save_iter=1000,
-        load_path=EDGE_CHECKPOINT.hf.path,  # pyrefly: ignore  # Use consolidated .pt file from HuggingFace
+        load_path=EDGE_CHECKPOINT.s3.uri,  # Use consolidated .pt checkpoint
         load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(enabled=False),
@@ -83,9 +83,9 @@ transfer2_singleview_posttrain_edge_lower_lr = dict(
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(save_s3=False),
-            # device_monitor=dict(save_s3=False),  # Disabled: pynvml not supported on ARM64
-            every_n_sample_reg=dict(save_s3=False, every_n=200),
-            every_n_sample_ema=dict(save_s3=False, every_n=200),
+            device_monitor=dict(save_s3=False),
+            every_n_sample_reg=dict(save_s3=False, every_n=200, offload_optimizer=True),
+            every_n_sample_ema=dict(save_s3=False, every_n=200, offload_optimizer=True),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
             dataloader_speed=dict(save_s3=False),
@@ -139,9 +139,9 @@ transfer2_singleview_posttrain_edge_example = dict(
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(save_s3=False),
-            # device_monitor=dict(save_s3=False),  # Disabled: pynvml not supported on ARM64
-            every_n_sample_reg=dict(save_s3=False, every_n=200),
-            every_n_sample_ema=dict(save_s3=False, every_n=200),
+            device_monitor=dict(save_s3=False),
+            every_n_sample_reg=dict(save_s3=False, every_n=200, offload_optimizer=True),
+            every_n_sample_ema=dict(save_s3=False, every_n=200, offload_optimizer=True),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
             dataloader_speed=dict(save_s3=False),
@@ -196,9 +196,9 @@ transfer2_singleview_posttrain_depth_example = dict(
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(save_s3=False),
-            # device_monitor=dict(save_s3=False),  # Disabled: pynvml not supported on ARM64
-            every_n_sample_reg=dict(save_s3=False, every_n=200),
-            every_n_sample_ema=dict(save_s3=False, every_n=200),
+            device_monitor=dict(save_s3=False),
+            every_n_sample_reg=dict(save_s3=False, every_n=200, offload_optimizer=True),
+            every_n_sample_ema=dict(save_s3=False, every_n=200, offload_optimizer=True),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
             dataloader_speed=dict(save_s3=False),
@@ -253,9 +253,9 @@ transfer2_singleview_posttrain_seg_example = dict(
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(save_s3=False),
-            # device_monitor=dict(save_s3=False),  # Disabled: pynvml not supported on ARM64
-            every_n_sample_reg=dict(save_s3=False, every_n=200),
-            every_n_sample_ema=dict(save_s3=False, every_n=200),
+            device_monitor=dict(save_s3=False),
+            every_n_sample_reg=dict(save_s3=False, every_n=200, offload_optimizer=True),
+            every_n_sample_ema=dict(save_s3=False, every_n=200, offload_optimizer=True),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
             dataloader_speed=dict(save_s3=False),
@@ -310,9 +310,9 @@ transfer2_singleview_posttrain_vis_example = dict(
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(save_s3=False),
-            # device_monitor=dict(save_s3=False),  # Disabled: pynvml not supported on ARM64
-            every_n_sample_reg=dict(save_s3=False, every_n=200),
-            every_n_sample_ema=dict(save_s3=False, every_n=200),
+            device_monitor=dict(save_s3=False),
+            every_n_sample_reg=dict(save_s3=False, every_n=200, offload_optimizer=True),
+            every_n_sample_ema=dict(save_s3=False, every_n=200, offload_optimizer=True),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
             dataloader_speed=dict(save_s3=False),
