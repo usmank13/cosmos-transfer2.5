@@ -77,6 +77,7 @@ class EveryNDrawSample(EveryN):
         is_sample: bool = True,
         save_s3: bool = False,
         is_ema: bool = False,
+        offload_optimizer: bool = False,
         use_negative_prompt: bool = False,
         show_all_frames: bool = False,
         fps: int = 16,
@@ -97,6 +98,30 @@ class EveryNDrawSample(EveryN):
         self.num_sampling_step = num_sampling_step
         self.rank = distributed.get_rank()
         self.fps = fps
+        self.offload_optimizer = offload_optimizer
+
+    def _offload_optimizer_to_cpu(self):
+        """Move optimizer state tensors to CPU to free GPU memory for sample generation."""
+        optimizer = getattr(self.trainer, "optimizer", None)
+        if optimizer is None:
+            return
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if isinstance(v, torch.Tensor):
+                    state[k] = v.cpu()
+        torch.cuda.empty_cache()
+        log.info("Offloaded optimizer state to CPU for sample generation")
+
+    def _reload_optimizer_to_gpu(self):
+        """Move optimizer state tensors back to GPU after sample generation."""
+        optimizer = getattr(self.trainer, "optimizer", None)
+        if optimizer is None:
+            return
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if isinstance(v, torch.Tensor):
+                    state[k] = v.cuda()
+        log.info("Reloaded optimizer state to GPU")
 
     def on_train_start(self, model: ImaginaireModel, iteration: int = 0) -> None:
         config_job = self.config.job
@@ -173,6 +198,16 @@ class EveryNDrawSample(EveryN):
 
     @torch.no_grad()
     def every_n_impl(self, trainer, model, data_batch, output_batch, loss, iteration):
+        if self.offload_optimizer:
+            self._offload_optimizer_to_cpu()
+
+        try:
+            self._every_n_impl(trainer, model, data_batch, output_batch, loss, iteration)
+        finally:
+            if self.offload_optimizer:
+                self._reload_optimizer_to_gpu()
+
+    def _every_n_impl(self, trainer, model, data_batch, output_batch, loss, iteration):
         if self.is_ema:
             if not model.config.ema.enabled:
                 return

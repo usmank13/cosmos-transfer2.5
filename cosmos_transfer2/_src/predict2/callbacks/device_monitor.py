@@ -120,7 +120,12 @@ class DeviceMonitor(EveryN):
             log.info(f"{self.name} callback: local_dir: {self.local_dir}")
 
         local_rank = int(os.getenv("LOCAL_RANK", 0))
-        self.handle = pynvml.nvmlDeviceGetHandleByIndex(local_rank)
+        try:
+            pynvml.nvmlInit()
+            self.handle = pynvml.nvmlDeviceGetHandleByIndex(local_rank)
+        except pynvml.NVMLError as e:
+            log.warning(f"Failed to initialize NVML device handle: {e}")
+            self.handle = None
 
     def every_n_impl(
         self,
@@ -146,9 +151,18 @@ class DeviceMonitor(EveryN):
         util = torch.cuda.utilization()
         clock = torch.cuda.clock_rate()
 
-        memory_info = pynvml.nvmlDeviceGetMemoryInfo(self.handle)
-        nvml_used_gpu_mem_gb = memory_info.used / (1024**3)
-        nvml_free_gpu_mem_gb = memory_info.free / (1024**3)
+        if self.handle is not None:
+            try:
+                memory_info = pynvml.nvmlDeviceGetMemoryInfo(self.handle)
+                nvml_used_gpu_mem_gb = memory_info.used / (1024**3)
+                nvml_free_gpu_mem_gb = memory_info.free / (1024**3)
+            except pynvml.NVMLError as e:
+                log.warning(f"Failed to get NVML memory info with error {e}")
+                nvml_used_gpu_mem_gb = 0.0
+                nvml_free_gpu_mem_gb = 0.0
+        else:
+            nvml_used_gpu_mem_gb = 0.0
+            nvml_free_gpu_mem_gb = 0.0
 
         prof_data = {
             "cpu_mem_gb": cpu_mem_gb,
