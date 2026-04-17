@@ -83,15 +83,18 @@ class ControlVideo2WorldModel(Video2WorldModel):
         log.info(self.net, rank0_only=True)
 
     @staticmethod
-    def _get_lora_target_modules(lora_target: str, base_modules: str) -> List[str]:
-        """Convert user-friendly module names + target branch into regex patterns for PEFT.
+    def _get_lora_target_modules(lora_target: str, base_modules: str) -> str:
+        """Convert user-friendly module names + target branch into a single regex for PEFT.
+
+        PEFT only supports regex matching when target_modules is a single string.
+        When passed as a list, items are treated as literal suffix strings.
 
         Args:
             lora_target: "dit", "control", or "both"
             base_modules: Comma-separated module names, e.g. "q_proj,k_proj,v_proj,output_proj,mlp.layer1,mlp.layer2"
 
         Returns:
-            List of regex pattern strings for PEFT's target_modules
+            A single regex pattern string for PEFT's target_modules
         """
         modules = [m.strip() for m in base_modules.split(",")]
         # Escape dots in module names for regex
@@ -104,16 +107,18 @@ class ControlVideo2WorldModel(Video2WorldModel):
 
         patterns = []
         if lora_target in ("dit", "both"):
-            # Match blocks.N.{module} but NOT control_blocks
-            patterns.append(rf"^blocks\.\d+{cwm}\.({mod_alt})$")
+            # Match blocks.N.[...].{module} but NOT control_blocks
+            # (\.\w+)* allows intermediate submodules like self_attn, cross_attn
+            patterns.append(rf"blocks\.\d+{cwm}(\.\w+)*\.({mod_alt})")
         if lora_target in ("control", "both"):
-            # Match control_blocks.N.{module} and control_blocks_N.{module} (multi-branch)
-            patterns.append(rf"^control_blocks[._]\d+{cwm}\.({mod_alt})$")
+            # Match control_blocks.N.[...].{module} and control_blocks_N.[...].{module}
+            patterns.append(rf"control_blocks[._]\d+{cwm}(\.\w+)*\.({mod_alt})")
 
         if not patterns:
             raise ValueError(f"Invalid lora_target: {lora_target!r}. Must be 'dit', 'control', or 'both'.")
 
-        return patterns
+        # Combine into single regex with alternation (PEFT requires single string for regex)
+        return "|".join(patterns)
 
     def add_lora(
         self,
