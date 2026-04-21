@@ -344,7 +344,7 @@ transfer2_singleview_posttrain_edge_lora_dit_example = dict(
     ),
     checkpoint=dict(
         save_iter=1000,
-        load_path=EDGE_CHECKPOINT.hf.path,  # pyrefly: ignore
+        load_path=EDGE_CHECKPOINT.hf.filename,  # pyrefly: ignore
         load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(enabled=False),
@@ -406,7 +406,7 @@ transfer2_singleview_posttrain_edge_lora_control_example = dict(
     ),
     checkpoint=dict(
         save_iter=1000,
-        load_path=EDGE_CHECKPOINT.hf.path,  # pyrefly: ignore
+        load_path=EDGE_CHECKPOINT.hf.filename,  # pyrefly: ignore
         load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(enabled=False),
@@ -467,7 +467,7 @@ transfer2_singleview_posttrain_depth_lora_both_example = dict(
     ),
     checkpoint=dict(
         save_iter=1000,
-        load_path=DEPTH_CHECKPOINT.hf.path,  # pyrefly: ignore
+        load_path=DEPTH_CHECKPOINT.hf.filename,  # pyrefly: ignore
         load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(enabled=False),
